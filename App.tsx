@@ -6,13 +6,24 @@ import {
   ScrollView, 
   TouchableOpacity, 
   TextInput,
-  Modal,
-  Dimensions 
+  Share,
+  Dimensions,
+  Switch
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 
 const { width } = Dimensions.get('window');
+
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
 
 interface LifeStats {
   yearsLeft: number;
@@ -20,9 +31,27 @@ interface LifeStats {
   weeksLeft: number;
   daysLeft: number;
   hoursLeft: number;
+  minutesLeft: number;
+  secondsLeft: number;
   percentLived: number;
   totalWeeks: number;
   weeksLived: number;
+  // Extended stats
+  heartbeatsLeft: number;
+  breathsLeft: number;
+  sunrisesLeft: number;
+  sleepsLeft: number;
+  mealsLeft: number;
+  summersLeft: number;
+  christmasesLeft: number;
+  fullMoonsLeft: number;
+}
+
+interface Milestone {
+  id: string;
+  title: string;
+  date: Date;
+  emoji: string;
 }
 
 export default function App() {
@@ -30,6 +59,9 @@ export default function App() {
   const [lifeExpectancy, setLifeExpectancy] = useState(80);
   const [showSetup, setShowSetup] = useState(true);
   const [stats, setStats] = useState<LifeStats | null>(null);
+  const [activeTab, setActiveTab] = useState<'countdown' | 'stats' | 'milestones' | 'settings'>('countdown');
+  const [dailyReminders, setDailyReminders] = useState(false);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   
   // Setup form state
   const [birthYear, setBirthYear] = useState('1990');
@@ -37,8 +69,24 @@ export default function App() {
   const [birthDay, setBirthDay] = useState('1');
   const [expectancy, setExpectancy] = useState('80');
 
+  const quotes = [
+    "The fear of death follows from the fear of life. Live fully.",
+    "Memento mori — remember that you will die.",
+    "Your time is limited. Don't waste it living someone else's life.",
+    "It is not death that a man should fear, but never beginning to live.",
+    "The trouble is, you think you have time.",
+    "Every man dies. Not every man really lives.",
+    "Life is short. Eat dessert first.",
+    "You could leave life right now. Let that determine what you do and say.",
+    "The only way to do great work is to love what you do.",
+    "In the end, it's not the years in your life that count. It's the life in your years.",
+  ];
+
+  const [currentQuote] = useState(quotes[Math.floor(Math.random() * quotes.length)]);
+
   useEffect(() => {
     loadUserData();
+    requestNotificationPermissions();
   }, []);
 
   useEffect(() => {
@@ -49,6 +97,32 @@ export default function App() {
     }
   }, [birthDate, lifeExpectancy]);
 
+  const requestNotificationPermissions = async () => {
+    await Notifications.requestPermissionsAsync();
+  };
+
+  const scheduleDailyReminder = async () => {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    
+    if (dailyReminders && stats) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏳ Memento Mori',
+          body: `You have ${stats.daysLeft.toLocaleString()} days left. Make today count.`,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour: 8,
+          minute: 0,
+        },
+      });
+    }
+  };
+
+  useEffect(() => {
+    scheduleDailyReminder();
+  }, [dailyReminders, stats]);
+
   const loadUserData = async () => {
     try {
       const data = await AsyncStorage.getItem('lifeCountdown');
@@ -56,6 +130,8 @@ export default function App() {
         const parsed = JSON.parse(data);
         setBirthDate(new Date(parsed.birthDate));
         setLifeExpectancy(parsed.lifeExpectancy);
+        setDailyReminders(parsed.dailyReminders || false);
+        setMilestones(parsed.milestones || []);
         setShowSetup(false);
       }
     } catch (e) {
@@ -69,7 +145,9 @@ export default function App() {
     
     await AsyncStorage.setItem('lifeCountdown', JSON.stringify({
       birthDate: date.toISOString(),
-      lifeExpectancy: exp
+      lifeExpectancy: exp,
+      dailyReminders,
+      milestones
     }));
     
     setBirthDate(date);
@@ -100,35 +178,84 @@ export default function App() {
     const weeksLived = Math.floor(msLived / (1000 * 60 * 60 * 24 * 7));
     const percentLived = Math.min(100, (msLived / totalMs) * 100);
     
+    // Fun stats
+    const heartbeatsLeft = Math.floor(daysLeft * 100000); // ~100k beats/day
+    const breathsLeft = Math.floor(daysLeft * 20000); // ~20k breaths/day
+    const sunrisesLeft = daysLeft;
+    const sleepsLeft = daysLeft;
+    const mealsLeft = daysLeft * 3;
+    const summersLeft = yearsLeft;
+    const christmasesLeft = yearsLeft;
+    const fullMoonsLeft = Math.floor(monthsLeft);
+    
     setStats({
       yearsLeft,
       monthsLeft,
       weeksLeft,
       daysLeft,
       hoursLeft,
+      minutesLeft,
+      secondsLeft,
       percentLived,
       totalWeeks,
-      weeksLived
+      weeksLived,
+      heartbeatsLeft,
+      breathsLeft,
+      sunrisesLeft,
+      sleepsLeft,
+      mealsLeft,
+      summersLeft,
+      christmasesLeft,
+      fullMoonsLeft,
     });
   };
 
-  const quotes = [
-    "The fear of death follows from the fear of life. Live fully.",
-    "Every day is a gift. That's why it's called the present.",
-    "Life is what happens while you're busy making other plans.",
-    "Your time is limited. Don't waste it living someone else's life.",
-    "It is not death that a man should fear, but never beginning to live.",
-  ];
+  const shareStats = async () => {
+    if (!stats) return;
+    
+    try {
+      await Share.share({
+        message: `⏳ Life Countdown\n\nI have approximately:\n• ${stats.yearsLeft} years\n• ${stats.daysLeft.toLocaleString()} days\n• ${stats.sunrisesLeft.toLocaleString()} sunrises\n\n${stats.percentLived.toFixed(1)}% of my life has passed.\n\nRemember: Memento Mori 💀`,
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
-  const [currentQuote] = useState(quotes[Math.floor(Math.random() * quotes.length)]);
+  const addMilestone = (title: string, date: Date, emoji: string) => {
+    const newMilestone: Milestone = {
+      id: Date.now().toString(),
+      title,
+      date,
+      emoji
+    };
+    const updated = [...milestones, newMilestone];
+    setMilestones(updated);
+    AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+      birthDate: birthDate?.toISOString(),
+      lifeExpectancy,
+      dailyReminders,
+      milestones: updated
+    }));
+  };
 
+  const getMilestoneDaysLeft = (date: Date) => {
+    const now = new Date();
+    const ms = date.getTime() - now.getTime();
+    return Math.ceil(ms / (1000 * 60 * 60 * 24));
+  };
+
+  // Setup Screen
   if (showSetup) {
     return (
       <View style={styles.container}>
         <StatusBar style="light" />
         <View style={styles.setupContainer}>
-          <Text style={styles.setupTitle}>⏳ Life Countdown</Text>
-          <Text style={styles.setupSubtitle}>Enter your birth date</Text>
+          <Text style={styles.setupEmoji}>💀</Text>
+          <Text style={styles.setupTitle}>Memento Mori</Text>
+          <Text style={styles.setupTagline}>Remember that you will die.</Text>
+          
+          <Text style={styles.setupSubtitle}>When were you born?</Text>
           
           <View style={styles.dateInputRow}>
             <TextInput
@@ -162,41 +289,82 @@ export default function App() {
             />
           </View>
           
-          <Text style={styles.setupSubtitle}>Life expectancy (years)</Text>
-          <TextInput
-            style={styles.expectancyInput}
-            value={expectancy}
-            onChangeText={setExpectancy}
-            keyboardType="number-pad"
-            maxLength={3}
-          />
+          <Text style={styles.setupSubtitle}>Life expectancy</Text>
+          <View style={styles.expectancyRow}>
+            <TextInput
+              style={styles.expectancyInput}
+              value={expectancy}
+              onChangeText={setExpectancy}
+              keyboardType="number-pad"
+              maxLength={3}
+            />
+            <Text style={styles.expectancyLabel}>years</Text>
+          </View>
           
           <TouchableOpacity style={styles.startButton} onPress={saveUserData}>
-            <Text style={styles.startButtonText}>Start Living</Text>
+            <Text style={styles.startButtonText}>Face Your Mortality</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  // Main App
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
+      
+      {/* Tab Bar */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'countdown' && styles.activeTab]}
+          onPress={() => setActiveTab('countdown')}
+        >
+          <Text style={styles.tabText}>⏳</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'stats' && styles.activeTab]}
+          onPress={() => setActiveTab('stats')}
+        >
+          <Text style={styles.tabText}>📊</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'milestones' && styles.activeTab]}
+          onPress={() => setActiveTab('milestones')}
+        >
+          <Text style={styles.tabText}>🎯</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
+          onPress={() => setActiveTab('settings')}
+        >
+          <Text style={styles.tabText}>⚙️</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>⏳ Your Life</Text>
-          <Text style={styles.quote}>"{currentQuote}"</Text>
-        </View>
-
-        {/* Main Stats */}
-        {stats && (
+        {/* COUNTDOWN TAB */}
+        {activeTab === 'countdown' && stats && (
           <>
-            {/* Big Number - Years */}
+            <View style={styles.header}>
+              <Text style={styles.quote}>"{currentQuote}"</Text>
+            </View>
+
+            {/* Dramatic Timer */}
+            <View style={styles.timerContainer}>
+              <Text style={styles.timerNumber}>
+                {String(Math.floor(stats.hoursLeft % 24)).padStart(2, '0')}:
+                {String(Math.floor(stats.minutesLeft % 60)).padStart(2, '0')}:
+                {String(Math.floor(stats.secondsLeft % 60)).padStart(2, '0')}
+              </Text>
+              <Text style={styles.timerLabel}>until midnight</Text>
+            </View>
+
+            {/* Big Number - Days */}
             <View style={styles.bigStatContainer}>
-              <Text style={styles.bigNumber}>{stats.yearsLeft}</Text>
-              <Text style={styles.bigLabel}>years remaining</Text>
+              <Text style={styles.bigNumber}>{stats.daysLeft.toLocaleString()}</Text>
+              <Text style={styles.bigLabel}>days remaining</Text>
             </View>
 
             {/* Progress Bar */}
@@ -204,13 +372,17 @@ export default function App() {
               <View style={styles.progressBar}>
                 <View style={[styles.progressFill, { width: `${stats.percentLived}%` }]} />
               </View>
-              <Text style={styles.progressText}>{stats.percentLived.toFixed(1)}% of life lived</Text>
+              <Text style={styles.progressText}>{stats.percentLived.toFixed(2)}% complete</Text>
             </View>
 
             {/* Stats Grid */}
             <View style={styles.statsGrid}>
               <View style={styles.statBox}>
-                <Text style={styles.statNumber}>{stats.monthsLeft.toLocaleString()}</Text>
+                <Text style={styles.statNumber}>{stats.yearsLeft}</Text>
+                <Text style={styles.statLabel}>years</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statNumber}>{stats.monthsLeft}</Text>
                 <Text style={styles.statLabel}>months</Text>
               </View>
               <View style={styles.statBox}>
@@ -218,20 +390,16 @@ export default function App() {
                 <Text style={styles.statLabel}>weeks</Text>
               </View>
               <View style={styles.statBox}>
-                <Text style={styles.statNumber}>{stats.daysLeft.toLocaleString()}</Text>
-                <Text style={styles.statLabel}>days</Text>
-              </View>
-              <View style={styles.statBox}>
                 <Text style={styles.statNumber}>{stats.hoursLeft.toLocaleString()}</Text>
                 <Text style={styles.statLabel}>hours</Text>
               </View>
             </View>
 
-            {/* Life in Weeks Grid */}
+            {/* Life in Weeks */}
             <View style={styles.weeksSection}>
               <Text style={styles.weeksTitle}>Your Life in Weeks</Text>
               <Text style={styles.weeksSubtitle}>
-                {stats.weeksLived} lived • {stats.weeksLeft} remaining
+                Each dot = 1 week • {stats.weeksLived} lived • {stats.weeksLeft} left
               </Text>
               <View style={styles.weeksGrid}>
                 {Array.from({ length: Math.min(stats.totalWeeks, 4160) }, (_, i) => (
@@ -246,24 +414,174 @@ export default function App() {
               </View>
             </View>
 
-            {/* Motivation */}
+            {/* Share Button */}
+            <TouchableOpacity style={styles.shareButton} onPress={shareStats}>
+              <Text style={styles.shareButtonText}>📤 Share My Stats</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* STATS TAB */}
+        {activeTab === 'stats' && stats && (
+          <>
+            <Text style={styles.sectionTitle}>Life in Numbers</Text>
+            
+            <View style={styles.funStatsGrid}>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>🌅</Text>
+                <Text style={styles.funStatNumber}>{stats.sunrisesLeft.toLocaleString()}</Text>
+                <Text style={styles.funStatLabel}>sunrises left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>😴</Text>
+                <Text style={styles.funStatNumber}>{stats.sleepsLeft.toLocaleString()}</Text>
+                <Text style={styles.funStatLabel}>sleeps left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>🍽️</Text>
+                <Text style={styles.funStatNumber}>{stats.mealsLeft.toLocaleString()}</Text>
+                <Text style={styles.funStatLabel}>meals left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>☀️</Text>
+                <Text style={styles.funStatNumber}>{stats.summersLeft}</Text>
+                <Text style={styles.funStatLabel}>summers left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>🎄</Text>
+                <Text style={styles.funStatNumber}>{stats.christmasesLeft}</Text>
+                <Text style={styles.funStatLabel}>Christmases left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>🌕</Text>
+                <Text style={styles.funStatNumber}>{stats.fullMoonsLeft}</Text>
+                <Text style={styles.funStatLabel}>full moons left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>💓</Text>
+                <Text style={styles.funStatNumber}>{(stats.heartbeatsLeft / 1000000000).toFixed(1)}B</Text>
+                <Text style={styles.funStatLabel}>heartbeats left</Text>
+              </View>
+              <View style={styles.funStatCard}>
+                <Text style={styles.funStatEmoji}>🌬️</Text>
+                <Text style={styles.funStatNumber}>{(stats.breathsLeft / 1000000).toFixed(0)}M</Text>
+                <Text style={styles.funStatLabel}>breaths left</Text>
+              </View>
+            </View>
+
             <View style={styles.motivationSection}>
-              <Text style={styles.motivationTitle}>Make it count.</Text>
+              <Text style={styles.motivationTitle}>Perspective</Text>
               <Text style={styles.motivationText}>
-                Every week that passes is a week you'll never get back. 
-                What will you do with the {stats.weeksLeft.toLocaleString()} weeks you have left?
+                You have {stats.summersLeft} summers left to feel the sun on your skin.{'\n\n'}
+                {stats.christmasesLeft} more times to gather with loved ones.{'\n\n'}
+                {stats.sunrisesLeft.toLocaleString()} more chances to wake up and choose how you spend your day.{'\n\n'}
+                What will you do with them?
               </Text>
             </View>
           </>
         )}
 
-        {/* Reset Button */}
-        <TouchableOpacity 
-          style={styles.resetButton} 
-          onPress={() => setShowSetup(true)}
-        >
-          <Text style={styles.resetButtonText}>Change Settings</Text>
-        </TouchableOpacity>
+        {/* MILESTONES TAB */}
+        {activeTab === 'milestones' && (
+          <>
+            <Text style={styles.sectionTitle}>Countdown To...</Text>
+            
+            {/* Default Milestones */}
+            <View style={styles.milestoneCard}>
+              <Text style={styles.milestoneEmoji}>🎂</Text>
+              <View style={styles.milestoneInfo}>
+                <Text style={styles.milestoneTitle}>Next Birthday</Text>
+                <Text style={styles.milestoneDays}>
+                  {birthDate && getMilestoneDaysLeft(new Date(new Date().getFullYear() + (new Date() > new Date(new Date().getFullYear(), birthDate.getMonth(), birthDate.getDate()) ? 1 : 0), birthDate.getMonth(), birthDate.getDate()))} days
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.milestoneCard}>
+              <Text style={styles.milestoneEmoji}>🎆</Text>
+              <View style={styles.milestoneInfo}>
+                <Text style={styles.milestoneTitle}>New Year {new Date().getFullYear() + 1}</Text>
+                <Text style={styles.milestoneDays}>
+                  {getMilestoneDaysLeft(new Date(new Date().getFullYear() + 1, 0, 1))} days
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.milestoneCard}>
+              <Text style={styles.milestoneEmoji}>🎄</Text>
+              <View style={styles.milestoneInfo}>
+                <Text style={styles.milestoneTitle}>Christmas</Text>
+                <Text style={styles.milestoneDays}>
+                  {getMilestoneDaysLeft(new Date(new Date().getFullYear() + (new Date() > new Date(new Date().getFullYear(), 11, 25) ? 1 : 0), 11, 25))} days
+                </Text>
+              </View>
+            </View>
+
+            {/* Custom Milestones */}
+            {milestones.map((m) => (
+              <View key={m.id} style={styles.milestoneCard}>
+                <Text style={styles.milestoneEmoji}>{m.emoji}</Text>
+                <View style={styles.milestoneInfo}>
+                  <Text style={styles.milestoneTitle}>{m.title}</Text>
+                  <Text style={styles.milestoneDays}>
+                    {getMilestoneDaysLeft(new Date(m.date))} days
+                  </Text>
+                </View>
+              </View>
+            ))}
+
+            <TouchableOpacity 
+              style={styles.addMilestoneButton}
+              onPress={() => addMilestone('Retirement', new Date(2050, 0, 1), '🏖️')}
+            >
+              <Text style={styles.addMilestoneText}>+ Add Milestone</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* SETTINGS TAB */}
+        {activeTab === 'settings' && (
+          <>
+            <Text style={styles.sectionTitle}>Settings</Text>
+            
+            <View style={styles.settingRow}>
+              <View>
+                <Text style={styles.settingLabel}>Daily Reminder</Text>
+                <Text style={styles.settingDescription}>Get reminded of your mortality at 8 AM</Text>
+              </View>
+              <Switch
+                value={dailyReminders}
+                onValueChange={(value) => {
+                  setDailyReminders(value);
+                  AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+                    birthDate: birthDate?.toISOString(),
+                    lifeExpectancy,
+                    dailyReminders: value,
+                    milestones
+                  }));
+                }}
+                trackColor={{ false: '#333', true: '#ff6b35' }}
+                thumbColor="#fff"
+              />
+            </View>
+
+            <TouchableOpacity 
+              style={styles.settingButton}
+              onPress={() => setShowSetup(true)}
+            >
+              <Text style={styles.settingButtonText}>Change Birth Date / Life Expectancy</Text>
+            </TouchableOpacity>
+
+            <View style={styles.aboutSection}>
+              <Text style={styles.aboutTitle}>About</Text>
+              <Text style={styles.aboutText}>
+                "Memento Mori" is Latin for "remember that you will die."{'\n\n'}
+                This ancient practice isn't meant to be morbid—it's meant to inspire you to live fully, love deeply, and make every moment count.{'\n\n'}
+                Use this app as a daily reminder that your time is limited and precious.
+              </Text>
+            </View>
+          </>
+        )}
 
       </ScrollView>
     </View>
@@ -278,23 +596,53 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
+  tabBar: {
+    flexDirection: 'row',
+    paddingTop: 50,
+    paddingBottom: 10,
+    backgroundColor: '#111',
+    borderBottomWidth: 1,
+    borderBottomColor: '#222',
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#ff6b35',
+  },
+  tabText: {
+    fontSize: 24,
+  },
   setupContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
   },
+  setupEmoji: {
+    fontSize: 60,
+    marginBottom: 20,
+  },
   setupTitle: {
     fontSize: 36,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 10,
+    marginBottom: 5,
+  },
+  setupTagline: {
+    fontSize: 16,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 40,
   },
   setupSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#888',
-    marginBottom: 20,
-    marginTop: 20,
+    marginBottom: 15,
+    marginTop: 25,
   },
   dateInputRow: {
     flexDirection: 'row',
@@ -314,21 +662,30 @@ const styles = StyleSheet.create({
     fontSize: 24,
     marginHorizontal: 8,
   },
+  expectancyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   expectancyInput: {
     backgroundColor: '#1a1a1a',
     color: '#fff',
     fontSize: 32,
     padding: 15,
     borderRadius: 10,
-    width: 100,
+    width: 80,
     textAlign: 'center',
+  },
+  expectancyLabel: {
+    color: '#666',
+    fontSize: 18,
+    marginLeft: 10,
   },
   startButton: {
     backgroundColor: '#ff6b35',
-    paddingHorizontal: 40,
+    paddingHorizontal: 30,
     paddingVertical: 18,
     borderRadius: 30,
-    marginTop: 40,
+    marginTop: 50,
   },
   startButtonText: {
     color: '#fff',
@@ -336,15 +693,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   header: {
-    padding: 30,
-    paddingTop: 60,
+    padding: 20,
     alignItems: 'center',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 15,
   },
   quote: {
     fontSize: 14,
@@ -353,34 +703,48 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
   },
-  bigStatContainer: {
+  timerContainer: {
     alignItems: 'center',
-    paddingVertical: 30,
+    paddingVertical: 10,
   },
-  bigNumber: {
-    fontSize: 120,
+  timerNumber: {
+    fontSize: 48,
     fontWeight: '200',
     color: '#ff6b35',
+    fontVariant: ['tabular-nums'],
+  },
+  timerLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  bigStatContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  bigNumber: {
+    fontSize: 80,
+    fontWeight: '200',
+    color: '#fff',
   },
   bigLabel: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#888',
-    marginTop: -10,
+    marginTop: -5,
   },
   progressContainer: {
     paddingHorizontal: 30,
-    marginBottom: 30,
+    marginBottom: 25,
   },
   progressBar: {
-    height: 8,
+    height: 6,
     backgroundColor: '#222',
-    borderRadius: 4,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: '#ff6b35',
-    borderRadius: 4,
+    borderRadius: 3,
   },
   progressText: {
     color: '#666',
@@ -392,37 +756,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: 20,
-    marginBottom: 30,
+    marginBottom: 25,
   },
   statBox: {
     width: '50%',
-    padding: 15,
+    padding: 12,
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '300',
     color: '#fff',
   },
   statLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
-    marginTop: 5,
+    marginTop: 4,
   },
   weeksSection: {
     padding: 20,
     marginBottom: 20,
   },
   weeksTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   weeksSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   weeksGrid: {
     flexDirection: 'row',
@@ -440,30 +804,150 @@ const styles = StyleSheet.create({
   weekDotRemaining: {
     backgroundColor: '#333',
   },
-  motivationSection: {
-    padding: 30,
-    backgroundColor: '#111',
+  shareButton: {
+    backgroundColor: '#222',
     marginHorizontal: 20,
-    borderRadius: 15,
-    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
   },
-  motivationTitle: {
-    fontSize: 22,
+  shareButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  sectionTitle: {
+    fontSize: 24,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 10,
+    padding: 20,
+    paddingBottom: 15,
+  },
+  funStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 10,
+  },
+  funStatCard: {
+    width: '50%',
+    padding: 10,
+  },
+  funStatEmoji: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  funStatNumber: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: '#fff',
+  },
+  funStatLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  motivationSection: {
+    padding: 20,
+    backgroundColor: '#111',
+    marginHorizontal: 15,
+    borderRadius: 15,
+    marginTop: 20,
+  },
+  motivationTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 12,
   },
   motivationText: {
     fontSize: 14,
     color: '#888',
-    lineHeight: 22,
+    lineHeight: 24,
   },
-  resetButton: {
-    alignSelf: 'center',
-    paddingVertical: 10,
+  milestoneCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#151515',
+    marginHorizontal: 15,
+    marginBottom: 10,
+    padding: 18,
+    borderRadius: 12,
   },
-  resetButtonText: {
-    color: '#444',
+  milestoneEmoji: {
+    fontSize: 32,
+    marginRight: 15,
+  },
+  milestoneInfo: {
+    flex: 1,
+  },
+  milestoneTitle: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  milestoneDays: {
     fontSize: 14,
+    color: '#ff6b35',
+    marginTop: 4,
+  },
+  addMilestoneButton: {
+    marginHorizontal: 15,
+    marginTop: 10,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+  },
+  addMilestoneText: {
+    color: '#666',
+    fontSize: 16,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#151515',
+    marginHorizontal: 15,
+    marginBottom: 10,
+    padding: 18,
+    borderRadius: 12,
+  },
+  settingLabel: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  settingDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  settingButton: {
+    backgroundColor: '#222',
+    marginHorizontal: 15,
+    marginTop: 10,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  settingButtonText: {
+    color: '#ff6b35',
+    fontSize: 16,
+  },
+  aboutSection: {
+    padding: 20,
+    marginTop: 30,
+  },
+  aboutTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  aboutText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 22,
   },
 });
