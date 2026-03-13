@@ -8,13 +8,37 @@ import {
   TextInput,
   Share,
   Dimensions,
-  Switch
+  Switch,
+  Modal,
+  Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
+// Widget support - conditional import for iOS
+let WidgetKit: any = null;
+try {
+  WidgetKit = require('react-native-widgetkit');
+} catch (e) {
+  // Widget kit not available
+}
 
 const { width } = Dimensions.get('window');
+const APP_GROUP = 'group.com.m888ai.lifecountdown';
+
+// Historical figures for comparison
+const HISTORICAL_FIGURES = [
+  { name: 'Mozart', livedYears: 35, emoji: '🎼', quote: 'Composed 600+ works' },
+  { name: 'Alexander the Great', livedYears: 32, emoji: '⚔️', quote: 'Conquered the known world' },
+  { name: 'Jesus', livedYears: 33, emoji: '✝️', quote: 'Changed human history' },
+  { name: 'Martin Luther King Jr.', livedYears: 39, emoji: '✊', quote: 'Led the civil rights movement' },
+  { name: 'Bruce Lee', livedYears: 32, emoji: '🥋', quote: 'Revolutionized martial arts' },
+  { name: 'Anne Frank', livedYears: 15, emoji: '📔', quote: 'Inspired millions through her diary' },
+  { name: 'Jimi Hendrix', livedYears: 27, emoji: '🎸', quote: 'Greatest guitarist ever' },
+  { name: 'Frida Kahlo', livedYears: 47, emoji: '🎨', quote: '200+ paintings that changed art' },
+  { name: 'Steve Jobs', livedYears: 56, emoji: '🍎', quote: 'Created Apple, Pixar, changed tech' },
+  { name: 'Kobe Bryant', livedYears: 41, emoji: '🏀', quote: '5 NBA championships, legend' },
+];
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -22,6 +46,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -54,6 +80,8 @@ interface Milestone {
   emoji: string;
 }
 
+type VisualizationMode = 'grid' | 'calendar' | 'spiral' | 'blocks';
+
 export default function App() {
   const [birthDate, setBirthDate] = useState<Date | null>(null);
   const [lifeExpectancy, setLifeExpectancy] = useState(80);
@@ -62,6 +90,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'countdown' | 'stats' | 'milestones' | 'settings'>('countdown');
   const [dailyReminders, setDailyReminders] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>('grid');
+  const [showMilestoneModal, setShowMilestoneModal] = useState(false);
+  const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
+  const [newMilestoneEmoji, setNewMilestoneEmoji] = useState('🎯');
+  const [newMilestoneMonth, setNewMilestoneMonth] = useState('');
+  const [newMilestoneDay, setNewMilestoneDay] = useState('');
+  const [newMilestoneYear, setNewMilestoneYear] = useState('');
   
   // Setup form state
   const [birthYear, setBirthYear] = useState('1990');
@@ -96,6 +131,34 @@ export default function App() {
       return () => clearInterval(interval);
     }
   }, [birthDate, lifeExpectancy]);
+
+  // Sync data to widgets
+  const syncWidgetData = async (calculatedStats: LifeStats) => {
+    if (Platform.OS !== 'ios' || !WidgetKit) return;
+    
+    try {
+      const widgetData = {
+        birthDate: birthDate?.toISOString() || '',
+        lifeExpectancy,
+        daysLeft: calculatedStats.daysLeft,
+        weeksLeft: calculatedStats.weeksLeft,
+        yearsLeft: calculatedStats.yearsLeft,
+        percentLived: calculatedStats.percentLived,
+        lastUpdated: new Date().toISOString(),
+      };
+      
+      // Save to shared user defaults for widget access
+      if (WidgetKit.setItem) {
+        await WidgetKit.setItem('widgetData', JSON.stringify(widgetData), APP_GROUP);
+      }
+      // Reload widget timelines
+      if (WidgetKit.reloadAllTimelines) {
+        await WidgetKit.reloadAllTimelines();
+      }
+    } catch (error) {
+      console.log('Widget sync skipped:', error);
+    }
+  };
 
   const requestNotificationPermissions = async () => {
     await Notifications.requestPermissionsAsync();
@@ -188,7 +251,7 @@ export default function App() {
     const christmasesLeft = yearsLeft;
     const fullMoonsLeft = Math.floor(monthsLeft);
     
-    setStats({
+    const newStats = {
       yearsLeft,
       monthsLeft,
       weeksLeft,
@@ -207,7 +270,14 @@ export default function App() {
       summersLeft,
       christmasesLeft,
       fullMoonsLeft,
-    });
+    };
+    
+    setStats(newStats);
+    
+    // Sync to widgets (only every minute to avoid overhead)
+    if (secondsLeft % 60 === 0) {
+      syncWidgetData(newStats);
+    }
   };
 
   const shareStats = async () => {
@@ -395,23 +465,129 @@ export default function App() {
               </View>
             </View>
 
-            {/* Life in Weeks */}
+            {/* Visualization Mode Selector */}
+            <View style={styles.vizModeSelector}>
+              {(['grid', 'calendar', 'spiral', 'blocks'] as VisualizationMode[]).map((mode) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.vizModeButton, visualizationMode === mode && styles.vizModeActive]}
+                  onPress={() => setVisualizationMode(mode)}
+                >
+                  <Text style={[styles.vizModeText, visualizationMode === mode && styles.vizModeTextActive]}>
+                    {mode === 'grid' ? '⊡' : mode === 'calendar' ? '📅' : mode === 'spiral' ? '🌀' : '▦'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Life Visualization */}
             <View style={styles.weeksSection}>
-              <Text style={styles.weeksTitle}>Your Life in Weeks</Text>
-              <Text style={styles.weeksSubtitle}>
-                Each dot = 1 week • {stats.weeksLived} lived • {stats.weeksLeft} left
+              <Text style={styles.weeksTitle}>
+                {visualizationMode === 'grid' && 'Your Life in Weeks'}
+                {visualizationMode === 'calendar' && 'Your Life in Years'}
+                {visualizationMode === 'spiral' && 'Life Spiral'}
+                {visualizationMode === 'blocks' && 'Life Blocks (Decades)'}
               </Text>
-              <View style={styles.weeksGrid}>
-                {Array.from({ length: Math.min(stats.totalWeeks, 4160) }, (_, i) => (
-                  <View 
-                    key={i} 
-                    style={[
-                      styles.weekDot,
-                      i < stats.weeksLived ? styles.weekDotLived : styles.weekDotRemaining
-                    ]} 
-                  />
-                ))}
-              </View>
+              <Text style={styles.weeksSubtitle}>
+                {visualizationMode === 'grid' && `Each dot = 1 week • ${stats.weeksLived} lived • ${stats.weeksLeft} left`}
+                {visualizationMode === 'calendar' && `Each row = 1 year • 52 weeks per row`}
+                {visualizationMode === 'spiral' && `Spiraling through time • ${stats.percentLived.toFixed(1)}% complete`}
+                {visualizationMode === 'blocks' && `Each block = 10 years • ${lifeExpectancy / 10} decades total`}
+              </Text>
+              
+              {/* Grid View (Original) */}
+              {visualizationMode === 'grid' && (
+                <View style={styles.weeksGrid}>
+                  {Array.from({ length: Math.min(stats.totalWeeks, 4160) }, (_, i) => (
+                    <View 
+                      key={i} 
+                      style={[
+                        styles.weekDot,
+                        i < stats.weeksLived ? styles.weekDotLived : styles.weekDotRemaining
+                      ]} 
+                    />
+                  ))}
+                </View>
+              )}
+              
+              {/* Calendar View - Years as rows */}
+              {visualizationMode === 'calendar' && (
+                <View style={styles.calendarGrid}>
+                  {Array.from({ length: lifeExpectancy }, (_, yearIdx) => {
+                    const yearStart = yearIdx * 52;
+                    const weeksInYear = Array.from({ length: 52 }, (_, weekIdx) => yearStart + weekIdx);
+                    return (
+                      <View key={yearIdx} style={styles.calendarRow}>
+                        <Text style={styles.calendarYear}>{yearIdx + 1}</Text>
+                        <View style={styles.calendarWeeks}>
+                          {weeksInYear.map((weekNum) => (
+                            <View
+                              key={weekNum}
+                              style={[
+                                styles.calendarDot,
+                                weekNum < stats.weeksLived ? styles.weekDotLived : styles.weekDotRemaining
+                              ]}
+                            />
+                          ))}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+              
+              {/* Spiral View */}
+              {visualizationMode === 'spiral' && (
+                <View style={styles.spiralContainer}>
+                  {Array.from({ length: Math.min(lifeExpectancy, 90) }, (_, i) => {
+                    const angle = i * 15 * (Math.PI / 180);
+                    const radius = 20 + i * 1.8;
+                    const x = Math.cos(angle) * radius + 120;
+                    const y = Math.sin(angle) * radius + 120;
+                    const yearsLived = birthDate ? Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
+                    
+                    return (
+                      <View
+                        key={i}
+                        style={[
+                          styles.spiralDot,
+                          { left: x, top: y },
+                          i < yearsLived ? styles.weekDotLived : styles.weekDotRemaining
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              )}
+              
+              {/* Blocks View - Decades */}
+              {visualizationMode === 'blocks' && (
+                <View style={styles.blocksGrid}>
+                  {Array.from({ length: Math.ceil(lifeExpectancy / 10) }, (_, decadeIdx) => {
+                    const yearsLived = birthDate ? Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
+                    const decadeStart = decadeIdx * 10;
+                    const decadeEnd = Math.min((decadeIdx + 1) * 10, lifeExpectancy);
+                    const percentFilled = Math.max(0, Math.min(100, ((yearsLived - decadeStart) / (decadeEnd - decadeStart)) * 100));
+                    const isPast = yearsLived >= decadeEnd;
+                    const isCurrent = yearsLived >= decadeStart && yearsLived < decadeEnd;
+                    
+                    return (
+                      <View key={decadeIdx} style={styles.decadeBlock}>
+                        <View style={[
+                          styles.decadeBlockInner,
+                          isPast && styles.decadeBlockPast,
+                          isCurrent && styles.decadeBlockCurrent
+                        ]}>
+                          {isCurrent && (
+                            <View style={[styles.decadeProgress, { height: `${percentFilled}%` }]} />
+                          )}
+                        </View>
+                        <Text style={styles.decadeLabel}>{decadeStart}-{decadeEnd}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
 
             {/* Share Button */}
@@ -478,6 +654,36 @@ export default function App() {
                 What will you do with them?
               </Text>
             </View>
+
+            {/* Compare with Historical Figures */}
+            <Text style={styles.sectionTitle}>They Changed the World</Text>
+            <Text style={styles.sectionSubtitle}>
+              {birthDate && `You've lived ${Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25))} years. Look what they accomplished:`}
+            </Text>
+            
+            {HISTORICAL_FIGURES.map((figure, idx) => {
+              const yourAge = birthDate ? Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
+              const comparison = yourAge >= figure.livedYears ? 'outlived' : 'younger';
+              const diff = Math.abs(yourAge - figure.livedYears);
+              
+              return (
+                <View key={idx} style={styles.figureCard}>
+                  <Text style={styles.figureEmoji}>{figure.emoji}</Text>
+                  <View style={styles.figureInfo}>
+                    <Text style={styles.figureName}>{figure.name}</Text>
+                    <Text style={styles.figureYears}>Lived {figure.livedYears} years</Text>
+                    <Text style={styles.figureQuote}>{figure.quote}</Text>
+                  </View>
+                  <View style={styles.figureComparison}>
+                    {comparison === 'outlived' ? (
+                      <Text style={styles.figureOutlived}>+{diff}y</Text>
+                    ) : (
+                      <Text style={styles.figureYounger}>-{diff}y</Text>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
           </>
         )}
 
@@ -532,12 +738,121 @@ export default function App() {
 
             <TouchableOpacity 
               style={styles.addMilestoneButton}
-              onPress={() => addMilestone('Retirement', new Date(2050, 0, 1), '🏖️')}
+              onPress={() => {
+                setNewMilestoneYear(String(new Date().getFullYear() + 1));
+                setNewMilestoneMonth('1');
+                setNewMilestoneDay('1');
+                setShowMilestoneModal(true);
+              }}
             >
-              <Text style={styles.addMilestoneText}>+ Add Milestone</Text>
+              <Text style={styles.addMilestoneText}>+ Add Custom Milestone</Text>
             </TouchableOpacity>
+
+            {/* Delete milestone hint */}
+            {milestones.length > 0 && (
+              <Text style={styles.deleteHint}>Swipe left on custom milestones to delete</Text>
+            )}
           </>
         )}
+
+        {/* Add Milestone Modal */}
+        <Modal
+          visible={showMilestoneModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowMilestoneModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Add Milestone</Text>
+              
+              {/* Emoji Picker */}
+              <Text style={styles.modalLabel}>Pick an emoji</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.emojiPicker}>
+                {['🎯', '🏖️', '💍', '🎓', '🏠', '👶', '✈️', '🚀', '💰', '🎉', '🏆', '❤️', '🌟', '📚', '🎸'].map((emoji) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={[styles.emojiOption, newMilestoneEmoji === emoji && styles.emojiSelected]}
+                    onPress={() => setNewMilestoneEmoji(emoji)}
+                  >
+                    <Text style={styles.emojiText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              
+              {/* Title */}
+              <Text style={styles.modalLabel}>What's the milestone?</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={newMilestoneTitle}
+                onChangeText={setNewMilestoneTitle}
+                placeholder="e.g., Retirement, Wedding, Trip to Japan"
+                placeholderTextColor="#666"
+              />
+              
+              {/* Date */}
+              <Text style={styles.modalLabel}>When?</Text>
+              <View style={styles.dateInputRow}>
+                <TextInput
+                  style={styles.dateInput}
+                  value={newMilestoneMonth}
+                  onChangeText={setNewMilestoneMonth}
+                  keyboardType="number-pad"
+                  placeholder="MM"
+                  placeholderTextColor="#666"
+                  maxLength={2}
+                />
+                <Text style={styles.dateSeparator}>/</Text>
+                <TextInput
+                  style={styles.dateInput}
+                  value={newMilestoneDay}
+                  onChangeText={setNewMilestoneDay}
+                  keyboardType="number-pad"
+                  placeholder="DD"
+                  placeholderTextColor="#666"
+                  maxLength={2}
+                />
+                <Text style={styles.dateSeparator}>/</Text>
+                <TextInput
+                  style={[styles.dateInput, { width: 80 }]}
+                  value={newMilestoneYear}
+                  onChangeText={setNewMilestoneYear}
+                  keyboardType="number-pad"
+                  placeholder="YYYY"
+                  placeholderTextColor="#666"
+                  maxLength={4}
+                />
+              </View>
+              
+              {/* Buttons */}
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={styles.modalCancelButton}
+                  onPress={() => setShowMilestoneModal(false)}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalSaveButton}
+                  onPress={() => {
+                    if (newMilestoneTitle && newMilestoneYear && newMilestoneMonth && newMilestoneDay) {
+                      const date = new Date(
+                        parseInt(newMilestoneYear),
+                        parseInt(newMilestoneMonth) - 1,
+                        parseInt(newMilestoneDay)
+                      );
+                      addMilestone(newMilestoneTitle, date, newMilestoneEmoji);
+                      setNewMilestoneTitle('');
+                      setShowMilestoneModal(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.modalSaveText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
@@ -949,5 +1264,239 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 22,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalLabel: {
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  modalInput: {
+    backgroundColor: '#0a0a0a',
+    color: '#fff',
+    fontSize: 16,
+    padding: 14,
+    borderRadius: 10,
+  },
+  emojiPicker: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  emojiOption: {
+    padding: 10,
+    marginRight: 8,
+    borderRadius: 10,
+    backgroundColor: '#0a0a0a',
+  },
+  emojiSelected: {
+    backgroundColor: '#ff6b35',
+  },
+  emojiText: {
+    fontSize: 24,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    marginTop: 24,
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#333',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  modalSaveButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#ff6b35',
+    alignItems: 'center',
+  },
+  modalSaveText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deleteHint: {
+    color: '#666',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 15,
+    fontStyle: 'italic',
+  },
+  // Historical Figures Styles
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#888',
+    paddingHorizontal: 20,
+    marginTop: -10,
+    marginBottom: 15,
+  },
+  figureCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#151515',
+    marginHorizontal: 15,
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 12,
+  },
+  figureEmoji: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  figureInfo: {
+    flex: 1,
+  },
+  figureName: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  figureYears: {
+    fontSize: 12,
+    color: '#888',
+  },
+  figureQuote: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  figureComparison: {
+    paddingLeft: 10,
+  },
+  figureOutlived: {
+    fontSize: 14,
+    color: '#ff6b35',
+    fontWeight: '600',
+  },
+  figureYounger: {
+    fontSize: 14,
+    color: '#4a9eff',
+    fontWeight: '600',
+  },
+  // Visualization Mode Styles
+  vizModeSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 15,
+  },
+  vizModeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#222',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vizModeActive: {
+    backgroundColor: '#ff6b35',
+  },
+  vizModeText: {
+    fontSize: 20,
+    color: '#888',
+  },
+  vizModeTextActive: {
+    color: '#fff',
+  },
+  // Calendar View Styles
+  calendarGrid: {
+    maxHeight: 400,
+  },
+  calendarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  calendarYear: {
+    width: 24,
+    fontSize: 8,
+    color: '#666',
+    textAlign: 'right',
+    marginRight: 4,
+  },
+  calendarWeeks: {
+    flexDirection: 'row',
+    flex: 1,
+  },
+  calendarDot: {
+    width: 4,
+    height: 4,
+    marginHorizontal: 0.5,
+    borderRadius: 1,
+  },
+  // Spiral View Styles
+  spiralContainer: {
+    width: 240,
+    height: 240,
+    alignSelf: 'center',
+    position: 'relative',
+  },
+  spiralDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  // Blocks/Decades View Styles
+  blocksGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  decadeBlock: {
+    alignItems: 'center',
+  },
+  decadeBlockInner: {
+    width: 50,
+    height: 80,
+    backgroundColor: '#222',
+    borderRadius: 8,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  decadeBlockPast: {
+    backgroundColor: '#ff6b35',
+  },
+  decadeBlockCurrent: {
+    backgroundColor: '#222',
+  },
+  decadeProgress: {
+    width: '100%',
+    backgroundColor: '#ff6b35',
+  },
+  decadeLabel: {
+    fontSize: 10,
+    color: '#666',
+    marginTop: 4,
   },
 });
