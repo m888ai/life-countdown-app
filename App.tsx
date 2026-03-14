@@ -40,14 +40,13 @@ const HISTORICAL_FIGURES = [
   { name: 'Kobe Bryant', livedYears: 41, emoji: '🏀', quote: '5 NBA championships, legend' },
 ];
 
-// Configure notifications
+// Configure notifications (SDK 55+ format)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
     shouldShowBanner: true,
     shouldShowList: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
   }),
 });
 
@@ -87,6 +86,7 @@ export default function App() {
   const [lifeExpectancy, setLifeExpectancy] = useState(80);
   const [showSetup, setShowSetup] = useState(true);
   const [stats, setStats] = useState<LifeStats | null>(null);
+  const [lastSyncedDay, setLastSyncedDay] = useState<number>(-1);
   const [activeTab, setActiveTab] = useState<'countdown' | 'stats' | 'milestones' | 'settings'>('countdown');
   const [dailyReminders, setDailyReminders] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -274,8 +274,9 @@ export default function App() {
     
     setStats(newStats);
     
-    // Sync to widgets (only every minute to avoid overhead)
-    if (secondsLeft % 60 === 0) {
+    // Sync to widgets when days change (avoids constant syncing)
+    if (daysLeft !== lastSyncedDay) {
+      setLastSyncedDay(daysLeft);
       syncWidgetData(newStats);
     }
   };
@@ -292,7 +293,7 @@ export default function App() {
     }
   };
 
-  const addMilestone = (title: string, date: Date, emoji: string) => {
+  const addMilestone = async (title: string, date: Date, emoji: string) => {
     const newMilestone: Milestone = {
       id: Date.now().toString(),
       title,
@@ -301,7 +302,18 @@ export default function App() {
     };
     const updated = [...milestones, newMilestone];
     setMilestones(updated);
-    AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+    await AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+      birthDate: birthDate?.toISOString(),
+      lifeExpectancy,
+      dailyReminders,
+      milestones: updated
+    }));
+  };
+
+  const deleteMilestone = async (milestoneId: string) => {
+    const updated = milestones.filter(m => m.id !== milestoneId);
+    setMilestones(updated);
+    await AsyncStorage.setItem('lifeCountdown', JSON.stringify({
       birthDate: birthDate?.toISOString(),
       lifeExpectancy,
       dailyReminders,
@@ -733,6 +745,12 @@ export default function App() {
                     {getMilestoneDaysLeft(new Date(m.date))} days
                   </Text>
                 </View>
+                <TouchableOpacity 
+                  style={styles.milestoneDeleteButton}
+                  onPress={() => deleteMilestone(m.id)}
+                >
+                  <Text style={styles.milestoneDeleteText}>✕</Text>
+                </TouchableOpacity>
               </View>
             ))}
 
@@ -748,9 +766,9 @@ export default function App() {
               <Text style={styles.addMilestoneText}>+ Add Custom Milestone</Text>
             </TouchableOpacity>
 
-            {/* Delete milestone hint */}
+            {/* Milestone count hint */}
             {milestones.length > 0 && (
-              <Text style={styles.deleteHint}>Swipe left on custom milestones to delete</Text>
+              <Text style={styles.deleteHint}>Tap ✕ to remove custom milestones</Text>
             )}
           </>
         )}
@@ -836,11 +854,22 @@ export default function App() {
                   style={styles.modalSaveButton}
                   onPress={() => {
                     if (newMilestoneTitle && newMilestoneYear && newMilestoneMonth && newMilestoneDay) {
-                      const date = new Date(
-                        parseInt(newMilestoneYear),
-                        parseInt(newMilestoneMonth) - 1,
-                        parseInt(newMilestoneDay)
-                      );
+                      const month = parseInt(newMilestoneMonth);
+                      const day = parseInt(newMilestoneDay);
+                      const year = parseInt(newMilestoneYear);
+                      
+                      // Validate date
+                      if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2020) {
+                        return; // Invalid date
+                      }
+                      
+                      const date = new Date(year, month - 1, day);
+                      
+                      // Check if date is in the future
+                      if (date <= new Date()) {
+                        return; // Date must be in the future
+                      }
+                      
                       addMilestone(newMilestoneTitle, date, newMilestoneEmoji);
                       setNewMilestoneTitle('');
                       setShowMilestoneModal(false);
@@ -1203,6 +1232,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#ff6b35',
     marginTop: 4,
+  },
+  milestoneDeleteButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  milestoneDeleteText: {
+    fontSize: 18,
+    color: '#666',
   },
   addMilestoneButton: {
     marginHorizontal: 15,
