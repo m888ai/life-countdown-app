@@ -440,7 +440,7 @@ export default function App() {
                 {String(Math.floor(stats.minutesLeft % 60)).padStart(2, '0')}:
                 {String(Math.floor(stats.secondsLeft % 60)).padStart(2, '0')}
               </Text>
-              <Text style={styles.timerLabel}>until midnight</Text>
+              <Text style={styles.timerLabel}>hours : mins : secs remaining</Text>
             </View>
 
             {/* Big Number - Days */}
