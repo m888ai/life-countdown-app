@@ -381,7 +381,7 @@ export default function App() {
 
     try {
       await Share.share({
-        message: `Life Countdown\n\nI have approximately:\n- ${stats.yearsLeft} years\n- ${stats.daysLeft.toLocaleString()} days\n- ${stats.sunrisesLeft.toLocaleString()} sunrises\n\n${stats.percentLived.toFixed(1)}% of my life has passed.\n\nRemember: Memento Mori`,
+        message: `Your Countdown\n\nI have approximately:\n- ${stats.yearsLeft} years\n- ${stats.daysLeft.toLocaleString()} days\n- ${stats.sunrisesLeft.toLocaleString()} sunrises\n\n${stats.percentLived.toFixed(1)}% of my life has passed.\n\nRemember: Memento Mori`,
       });
     } catch (error) {
       console.error(error);
@@ -1099,7 +1099,7 @@ export default function App() {
               </Text>
             </View>
 
-            <Text style={styles.versionText}>Life Countdown v1.0.0</Text>
+            <Text style={styles.versionText}>Your Countdown v1.0.0</Text>
           </>
         )}
 

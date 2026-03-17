@@ -1,23 +1,23 @@
 # App Store Metadata
 
 ## App Name (30 chars max)
-Life Countdown - Memento Mori
+Your Countdown: Timer & Widget
 
 ## Subtitle (30 chars max)
-Your time is finite. Use it.
+Life clock & memento mori
 
 ## Keywords (100 chars max, comma-separated)
-memento,mori,death,countdown,mortality,time left,weeks,finite,stoic,motivation,mindfulness,remaining
+countdown,timer,life,death,clock,memento,mori,time left,remaining,stoic,motivation,tracker,reminder
 
 ## Category
-Primary: Health & Fitness
-Secondary: Lifestyle
+Primary: Utilities
+Secondary: Health & Fitness
 
 ## Description
 
 You have roughly 4,160 weeks on this planet. How many have you already spent?
 
-Life Countdown turns an ancient philosophical practice into a daily companion. Memento mori — "remember that you will die" — is not about fear. It is about clarity. When you see your remaining time laid bare in seconds, sunrises, and summers, something shifts. The trivial falls away. What matters comes into focus.
+Your Countdown turns an ancient philosophical practice into a daily companion. Memento mori — "remember that you will die" — is not about fear. It is about clarity. When you see your remaining time laid bare in seconds, sunrises, and summers, something shifts. The trivial falls away. What matters comes into focus.
 
 Open the app and watch your life tick down in real time. Years, months, weeks, days, hours, minutes, seconds — all flowing steadily forward. It is not meant to alarm you. It is meant to wake you up.
 
@@ -45,7 +45,7 @@ The Stoics practiced memento mori to live better, not to despair. This app exist
 
 ## App Review Notes
 
-Life Countdown is based on "memento mori," a philosophical practice originating with the ancient Stoics and adopted across many wisdom traditions. The Latin phrase means "remember that you will die" and is used as a tool for motivation, gratitude, and intentional living. It is not morbid, nihilistic, or related to self-harm in any way.
+Your Countdown is based on "memento mori," a philosophical practice originating with the ancient Stoics and adopted across many wisdom traditions. The Latin phrase means "remember that you will die" and is used as a tool for motivation, gratitude, and intentional living. It is not morbid, nihilistic, or related to self-harm in any way.
 
 The app is comparable to journaling and mindfulness apps in its intent. It encourages users to reflect on the finite nature of time in order to prioritize what matters to them. The concept is widely discussed in mainstream books (Ryan Holiday's "The Daily Stoic"), TED talks, and wellness publications. Existing apps in this space (WeCroak, Time Left) have been approved and featured on the App Store.
 
@@ -55,7 +55,13 @@ No graphic or disturbing content is presented. The tone throughout is calm, refl
 2026 EVC Engage
 
 ## Privacy Policy URL
-(host privacy-policy.html and add URL here)
+https://lifecountdownapp.com/privacy.html
 
 ## Support URL
-(add support URL here)
+https://lifecountdownapp.com
+
+## Support Email
+support@lifecountdownapp.com
+
+## Marketing URL
+https://lifecountdownapp.com
