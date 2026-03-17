@@ -12,34 +12,37 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0a0a"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.evcengage.lifecountdown",
-      "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
-      }
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.evcengage.lifecountdown"
+      "package": "com.evcengage.lifecountdown",
+      "versionCode": 1
     },
     "plugins": [
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
           "color": "#ff6b35"
         }
       ]
     ],
     "extra": {
       "eas": {
-        "projectId": "life-countdown"
+        "projectId": "b3fb4aad-4ae0-4d35-a689-bb92f99ac962"
       }
-    }
+    },
+    "owner": "mj1133"
   }
 }

@@ -1,17 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  ScrollView, 
-  TouchableOpacity, 
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
   TextInput,
   Share,
   Dimensions,
   Switch,
   Modal,
-  Platform
+  Platform,
+  Keyboard,
+  Alert,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
@@ -24,13 +28,12 @@ try {
 }
 
 const { width } = Dimensions.get('window');
-const APP_GROUP = 'group.com.m888ai.lifecountdown';
+const APP_GROUP = 'group.com.evcengage.lifecountdown';
 
 // Historical figures for comparison
 const HISTORICAL_FIGURES = [
   { name: 'Mozart', livedYears: 35, emoji: '🎼', quote: 'Composed 600+ works' },
   { name: 'Alexander the Great', livedYears: 32, emoji: '⚔️', quote: 'Conquered the known world' },
-  { name: 'Jesus', livedYears: 33, emoji: '✝️', quote: 'Changed human history' },
   { name: 'Martin Luther King Jr.', livedYears: 39, emoji: '✊', quote: 'Led the civil rights movement' },
   { name: 'Bruce Lee', livedYears: 32, emoji: '🥋', quote: 'Revolutionized martial arts' },
   { name: 'Anne Frank', livedYears: 15, emoji: '📔', quote: 'Inspired millions through her diary' },
@@ -40,11 +43,10 @@ const HISTORICAL_FIGURES = [
   { name: 'Kobe Bryant', livedYears: 41, emoji: '🏀', quote: '5 NBA championships, legend' },
 ];
 
-// Configure notifications (SDK 55+ format)
+// Configure notifications (SDK 54 format)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowAlert: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
@@ -81,6 +83,34 @@ interface Milestone {
 
 type VisualizationMode = 'grid' | 'calendar' | 'spiral' | 'blocks';
 
+// Memoized week dot to prevent re-renders
+const WeekDot = memo(({ lived }: { lived: boolean }) => (
+  <View style={[styles.weekDot, lived ? styles.weekDotLived : styles.weekDotRemaining]} />
+));
+
+// Memoized grid visualization
+const WeeksGrid = memo(({ totalWeeks, weeksLived }: { totalWeeks: number; weeksLived: number }) => (
+  <View style={styles.weeksGrid}>
+    {Array.from({ length: Math.min(totalWeeks, 4160) }, (_, i) => (
+      <WeekDot key={i} lived={i < weeksLived} />
+    ))}
+  </View>
+));
+
+// Centralized save function to prevent race conditions
+const saveData = async (data: {
+  birthDate: string | undefined;
+  lifeExpectancy: number;
+  dailyReminders: boolean;
+  milestones: Milestone[];
+}) => {
+  try {
+    await AsyncStorage.setItem('lifeCountdown', JSON.stringify(data));
+  } catch (e) {
+    console.error('Failed to save data:', e);
+  }
+};
+
 export default function App() {
   const [birthDate, setBirthDate] = useState<Date | null>(null);
   const [lifeExpectancy, setLifeExpectancy] = useState(80);
@@ -97,11 +127,12 @@ export default function App() {
   const [newMilestoneMonth, setNewMilestoneMonth] = useState('');
   const [newMilestoneDay, setNewMilestoneDay] = useState('');
   const [newMilestoneYear, setNewMilestoneYear] = useState('');
-  
+  const [setupError, setSetupError] = useState('');
+
   // Setup form state
-  const [birthYear, setBirthYear] = useState('1990');
-  const [birthMonth, setBirthMonth] = useState('1');
-  const [birthDay, setBirthDay] = useState('1');
+  const [birthYear, setBirthYear] = useState('');
+  const [birthMonth, setBirthMonth] = useState('');
+  const [birthDay, setBirthDay] = useState('');
   const [expectancy, setExpectancy] = useState('80');
 
   const quotes = [
@@ -121,7 +152,6 @@ export default function App() {
 
   useEffect(() => {
     loadUserData();
-    requestNotificationPermissions();
   }, []);
 
   useEffect(() => {
@@ -135,7 +165,7 @@ export default function App() {
   // Sync data to widgets
   const syncWidgetData = async (calculatedStats: LifeStats) => {
     if (Platform.OS !== 'ios' || !WidgetKit) return;
-    
+
     try {
       const widgetData = {
         birthDate: birthDate?.toISOString() || '',
@@ -146,12 +176,10 @@ export default function App() {
         percentLived: calculatedStats.percentLived,
         lastUpdated: new Date().toISOString(),
       };
-      
-      // Save to shared user defaults for widget access
+
       if (WidgetKit.setItem) {
         await WidgetKit.setItem('widgetData', JSON.stringify(widgetData), APP_GROUP);
       }
-      // Reload widget timelines
       if (WidgetKit.reloadAllTimelines) {
         await WidgetKit.reloadAllTimelines();
       }
@@ -161,16 +189,17 @@ export default function App() {
   };
 
   const requestNotificationPermissions = async () => {
-    await Notifications.requestPermissionsAsync();
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status === 'granted';
   };
 
   const scheduleDailyReminder = async () => {
     await Notifications.cancelAllScheduledNotificationsAsync();
-    
+
     if (dailyReminders && stats) {
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: '⏳ Memento Mori',
+          title: 'Memento Mori',
           body: `You have ${stats.daysLeft.toLocaleString()} days left. Make today count.`,
         },
         trigger: {
@@ -183,18 +212,38 @@ export default function App() {
   };
 
   useEffect(() => {
-    scheduleDailyReminder();
-  }, [dailyReminders, stats]);
+    if (dailyReminders) {
+      scheduleDailyReminder();
+    }
+  }, [dailyReminders]);
+
+  // Re-schedule when stats change but only if reminders are on and day actually changed
+  useEffect(() => {
+    if (dailyReminders && stats) {
+      scheduleDailyReminder();
+    }
+  }, [stats?.daysLeft]);
 
   const loadUserData = async () => {
     try {
       const data = await AsyncStorage.getItem('lifeCountdown');
       if (data) {
         const parsed = JSON.parse(data);
-        setBirthDate(new Date(parsed.birthDate));
-        setLifeExpectancy(parsed.lifeExpectancy);
+        const loadedDate = new Date(parsed.birthDate);
+        // Validate loaded date
+        if (isNaN(loadedDate.getTime())) {
+          console.log('Invalid saved birth date, showing setup');
+          return;
+        }
+        setBirthDate(loadedDate);
+        setLifeExpectancy(parsed.lifeExpectancy || 80);
         setDailyReminders(parsed.dailyReminders || false);
         setMilestones(parsed.milestones || []);
+        // Pre-fill setup form with saved values
+        setBirthMonth(String(loadedDate.getMonth() + 1));
+        setBirthDay(String(loadedDate.getDate()));
+        setBirthYear(String(loadedDate.getFullYear()));
+        setExpectancy(String(parsed.lifeExpectancy || 80));
         setShowSetup(false);
       }
     } catch (e) {
@@ -202,33 +251,84 @@ export default function App() {
     }
   };
 
+  const validateAndSave = (): boolean => {
+    const month = parseInt(birthMonth);
+    const day = parseInt(birthDay);
+    const year = parseInt(birthYear);
+    const exp = parseInt(expectancy);
+
+    if (!birthMonth || !birthDay || !birthYear || !expectancy) {
+      setSetupError('Please fill in all fields');
+      return false;
+    }
+
+    if (isNaN(month) || month < 1 || month > 12) {
+      setSetupError('Month must be 1-12');
+      return false;
+    }
+
+    if (isNaN(day) || day < 1 || day > 31) {
+      setSetupError('Day must be 1-31');
+      return false;
+    }
+
+    if (isNaN(year) || year < 1900 || year > new Date().getFullYear()) {
+      setSetupError('Enter a valid birth year');
+      return false;
+    }
+
+    if (isNaN(exp) || exp < 1 || exp > 150) {
+      setSetupError('Life expectancy must be 1-150');
+      return false;
+    }
+
+    const date = new Date(year, month - 1, day);
+    // Check for date rollover (e.g., Feb 31 -> Mar 3)
+    if (date.getMonth() !== month - 1 || date.getDate() !== day) {
+      setSetupError('Invalid date for this month');
+      return false;
+    }
+
+    if (date >= new Date()) {
+      setSetupError('Birth date must be in the past');
+      return false;
+    }
+
+    return true;
+  };
+
   const saveUserData = async () => {
+    if (!validateAndSave()) return;
+
     const date = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay));
     const exp = parseInt(expectancy);
-    
-    await AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+
+    await saveData({
       birthDate: date.toISOString(),
       lifeExpectancy: exp,
       dailyReminders,
       milestones
-    }));
-    
+    });
+
     setBirthDate(date);
     setLifeExpectancy(exp);
+    setSetupError('');
     setShowSetup(false);
   };
 
   const calculateStats = () => {
     if (!birthDate) return;
-    
+
     const now = new Date();
     const deathDate = new Date(birthDate);
     deathDate.setFullYear(deathDate.getFullYear() + lifeExpectancy);
-    
+
     const msLeft = deathDate.getTime() - now.getTime();
     const msLived = now.getTime() - birthDate.getTime();
     const totalMs = deathDate.getTime() - birthDate.getTime();
-    
+
+    if (totalMs <= 0) return;
+
     const secondsLeft = Math.max(0, Math.floor(msLeft / 1000));
     const minutesLeft = Math.floor(secondsLeft / 60);
     const hoursLeft = Math.floor(minutesLeft / 60);
@@ -236,21 +336,21 @@ export default function App() {
     const weeksLeft = Math.floor(daysLeft / 7);
     const monthsLeft = Math.floor(daysLeft / 30.44);
     const yearsLeft = Math.floor(daysLeft / 365.25);
-    
+
     const totalWeeks = Math.floor(lifeExpectancy * 52.18);
     const weeksLived = Math.floor(msLived / (1000 * 60 * 60 * 24 * 7));
-    const percentLived = Math.min(100, (msLived / totalMs) * 100);
-    
+    const percentLived = Math.min(100, Math.max(0, (msLived / totalMs) * 100));
+
     // Fun stats
-    const heartbeatsLeft = Math.floor(daysLeft * 100000); // ~100k beats/day
-    const breathsLeft = Math.floor(daysLeft * 20000); // ~20k breaths/day
+    const heartbeatsLeft = Math.floor(daysLeft * 100000);
+    const breathsLeft = Math.floor(daysLeft * 20000);
     const sunrisesLeft = daysLeft;
     const sleepsLeft = daysLeft;
     const mealsLeft = daysLeft * 3;
     const summersLeft = yearsLeft;
     const christmasesLeft = yearsLeft;
     const fullMoonsLeft = Math.floor(monthsLeft);
-    
+
     const newStats = {
       yearsLeft,
       monthsLeft,
@@ -271,10 +371,10 @@ export default function App() {
       christmasesLeft,
       fullMoonsLeft,
     };
-    
+
     setStats(newStats);
-    
-    // Sync to widgets when days change (avoids constant syncing)
+
+    // Sync to widgets when days change
     if (daysLeft !== lastSyncedDay) {
       setLastSyncedDay(daysLeft);
       syncWidgetData(newStats);
@@ -283,10 +383,10 @@ export default function App() {
 
   const shareStats = async () => {
     if (!stats) return;
-    
+
     try {
       await Share.share({
-        message: `⏳ Life Countdown\n\nI have approximately:\n• ${stats.yearsLeft} years\n• ${stats.daysLeft.toLocaleString()} days\n• ${stats.sunrisesLeft.toLocaleString()} sunrises\n\n${stats.percentLived.toFixed(1)}% of my life has passed.\n\nRemember: Memento Mori 💀`,
+        message: `Life Countdown\n\nI have approximately:\n- ${stats.yearsLeft} years\n- ${stats.daysLeft.toLocaleString()} days\n- ${stats.sunrisesLeft.toLocaleString()} sunrises\n\n${stats.percentLived.toFixed(1)}% of my life has passed.\n\nRemember: Memento Mori`,
       });
     } catch (error) {
       console.error(error);
@@ -302,23 +402,23 @@ export default function App() {
     };
     const updated = [...milestones, newMilestone];
     setMilestones(updated);
-    await AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+    await saveData({
       birthDate: birthDate?.toISOString(),
       lifeExpectancy,
       dailyReminders,
       milestones: updated
-    }));
+    });
   };
 
   const deleteMilestone = async (milestoneId: string) => {
     const updated = milestones.filter(m => m.id !== milestoneId);
     setMilestones(updated);
-    await AsyncStorage.setItem('lifeCountdown', JSON.stringify({
+    await saveData({
       birthDate: birthDate?.toISOString(),
       lifeExpectancy,
       dailyReminders,
       milestones: updated
-    }));
+    });
   };
 
   const getMilestoneDaysLeft = (date: Date) => {
@@ -327,67 +427,113 @@ export default function App() {
     return Math.ceil(ms / (1000 * 60 * 60 * 24));
   };
 
+  const handleDailyReminderToggle = async (value: boolean) => {
+    if (value) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          'Notifications Disabled',
+          'Please enable notifications in your device settings to receive daily reminders.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
+    setDailyReminders(value);
+    await saveData({
+      birthDate: birthDate?.toISOString(),
+      lifeExpectancy,
+      dailyReminders: value,
+      milestones
+    });
+  };
+
+  // Memoize age calculation for historical figures
+  const yourAge = useMemo(() => {
+    if (!birthDate) return 0;
+    return Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+  }, [birthDate, stats?.daysLeft]);
+
   // Setup Screen
   if (showSetup) {
     return (
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View style={styles.container}>
         <StatusBar style="light" />
-        <View style={styles.setupContainer}>
-          <Text style={styles.setupEmoji}>💀</Text>
+        <SafeAreaView style={styles.setupContainer}>
+          <Text style={styles.setupEmoji} accessibilityLabel="Skull emoji">💀</Text>
           <Text style={styles.setupTitle}>Memento Mori</Text>
           <Text style={styles.setupTagline}>Remember that you will die.</Text>
-          
+
           <Text style={styles.setupSubtitle}>When were you born?</Text>
-          
+
           <View style={styles.dateInputRow}>
             <TextInput
               style={styles.dateInput}
               value={birthMonth}
-              onChangeText={setBirthMonth}
+              onChangeText={(t) => { setBirthMonth(t); setSetupError(''); }}
               keyboardType="number-pad"
               placeholder="MM"
               placeholderTextColor="#666"
               maxLength={2}
+              accessibilityLabel="Birth month"
+              returnKeyType="next"
             />
             <Text style={styles.dateSeparator}>/</Text>
             <TextInput
               style={styles.dateInput}
               value={birthDay}
-              onChangeText={setBirthDay}
+              onChangeText={(t) => { setBirthDay(t); setSetupError(''); }}
               keyboardType="number-pad"
               placeholder="DD"
               placeholderTextColor="#666"
               maxLength={2}
+              accessibilityLabel="Birth day"
+              returnKeyType="next"
             />
             <Text style={styles.dateSeparator}>/</Text>
             <TextInput
-              style={[styles.dateInput, { width: 80 }]}
+              style={[styles.dateInput, { width: 100 }]}
               value={birthYear}
-              onChangeText={setBirthYear}
+              onChangeText={(t) => { setBirthYear(t); setSetupError(''); }}
               keyboardType="number-pad"
               placeholder="YYYY"
               placeholderTextColor="#666"
               maxLength={4}
+              accessibilityLabel="Birth year"
+              returnKeyType="next"
             />
           </View>
-          
+
           <Text style={styles.setupSubtitle}>Life expectancy</Text>
           <View style={styles.expectancyRow}>
             <TextInput
               style={styles.expectancyInput}
               value={expectancy}
-              onChangeText={setExpectancy}
+              onChangeText={(t) => { setExpectancy(t); setSetupError(''); }}
               keyboardType="number-pad"
               maxLength={3}
+              accessibilityLabel="Life expectancy in years"
+              returnKeyType="done"
             />
             <Text style={styles.expectancyLabel}>years</Text>
           </View>
-          
-          <TouchableOpacity style={styles.startButton} onPress={saveUserData}>
+
+          {setupError ? (
+            <Text style={styles.setupError}>{setupError}</Text>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.startButton}
+            onPress={saveUserData}
+            accessibilityRole="button"
+            accessibilityLabel="Begin using the app"
+          >
             <Text style={styles.startButtonText}>Face Your Mortality</Text>
           </TouchableOpacity>
-        </View>
+        </SafeAreaView>
       </View>
+      </TouchableWithoutFeedback>
     );
   }
 
@@ -395,37 +541,54 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
-      {/* Tab Bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'countdown' && styles.activeTab]}
-          onPress={() => setActiveTab('countdown')}
-        >
-          <Text style={styles.tabText}>⏳</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'stats' && styles.activeTab]}
-          onPress={() => setActiveTab('stats')}
-        >
-          <Text style={styles.tabText}>📊</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'milestones' && styles.activeTab]}
-          onPress={() => setActiveTab('milestones')}
-        >
-          <Text style={styles.tabText}>🎯</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
-          onPress={() => setActiveTab('settings')}
-        >
-          <Text style={styles.tabText}>⚙️</Text>
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        
+      {/* Tab Bar */}
+      <SafeAreaView edges={['top']} style={styles.tabBarSafeArea}>
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'countdown' && styles.activeTab]}
+            onPress={() => setActiveTab('countdown')}
+            accessibilityRole="tab"
+            accessibilityLabel="Countdown"
+            accessibilityState={{ selected: activeTab === 'countdown' }}
+          >
+            <Text style={styles.tabText}>⏳</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'stats' && styles.activeTab]}
+            onPress={() => setActiveTab('stats')}
+            accessibilityRole="tab"
+            accessibilityLabel="Statistics"
+            accessibilityState={{ selected: activeTab === 'stats' }}
+          >
+            <Text style={styles.tabText}>📊</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'milestones' && styles.activeTab]}
+            onPress={() => setActiveTab('milestones')}
+            accessibilityRole="tab"
+            accessibilityLabel="Milestones"
+            accessibilityState={{ selected: activeTab === 'milestones' }}
+          >
+            <Text style={styles.tabText}>🎯</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
+            onPress={() => setActiveTab('settings')}
+            accessibilityRole="tab"
+            accessibilityLabel="Settings"
+            accessibilityState={{ selected: activeTab === 'settings' }}
+          >
+            <Text style={styles.tabText}>⚙️</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+
         {/* COUNTDOWN TAB */}
         {activeTab === 'countdown' && stats && (
           <>
@@ -435,7 +598,7 @@ export default function App() {
 
             {/* Dramatic Timer */}
             <View style={styles.timerContainer}>
-              <Text style={styles.timerNumber}>
+              <Text style={styles.timerNumber} accessibilityLabel={`${Math.floor(stats.hoursLeft % 24)} hours ${Math.floor(stats.minutesLeft % 60)} minutes ${Math.floor(stats.secondsLeft % 60)} seconds remaining`}>
                 {String(Math.floor(stats.hoursLeft % 24)).padStart(2, '0')}:
                 {String(Math.floor(stats.minutesLeft % 60)).padStart(2, '0')}:
                 {String(Math.floor(stats.secondsLeft % 60)).padStart(2, '0')}
@@ -445,13 +608,15 @@ export default function App() {
 
             {/* Big Number - Days */}
             <View style={styles.bigStatContainer}>
-              <Text style={styles.bigNumber}>{stats.daysLeft.toLocaleString()}</Text>
+              <Text style={styles.bigNumber} accessibilityLabel={`${stats.daysLeft.toLocaleString()} days remaining`}>
+                {stats.daysLeft.toLocaleString()}
+              </Text>
               <Text style={styles.bigLabel}>days remaining</Text>
             </View>
 
             {/* Progress Bar */}
             <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
+              <View style={styles.progressBar} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(stats.percentLived) }}>
                 <View style={[styles.progressFill, { width: `${stats.percentLived}%` }]} />
               </View>
               <Text style={styles.progressText}>{stats.percentLived.toFixed(2)}% complete</Text>
@@ -478,12 +643,15 @@ export default function App() {
             </View>
 
             {/* Visualization Mode Selector */}
-            <View style={styles.vizModeSelector}>
+            <View style={styles.vizModeSelector} accessibilityRole="tablist">
               {(['grid', 'calendar', 'spiral', 'blocks'] as VisualizationMode[]).map((mode) => (
                 <TouchableOpacity
                   key={mode}
                   style={[styles.vizModeButton, visualizationMode === mode && styles.vizModeActive]}
                   onPress={() => setVisualizationMode(mode)}
+                  accessibilityRole="tab"
+                  accessibilityLabel={mode === 'grid' ? 'Grid view' : mode === 'calendar' ? 'Calendar view' : mode === 'spiral' ? 'Spiral view' : 'Blocks view'}
+                  accessibilityState={{ selected: visualizationMode === mode }}
                 >
                   <Text style={[styles.vizModeText, visualizationMode === mode && styles.vizModeTextActive]}>
                     {mode === 'grid' ? '⊡' : mode === 'calendar' ? '📅' : mode === 'spiral' ? '🌀' : '▦'}
@@ -501,27 +669,17 @@ export default function App() {
                 {visualizationMode === 'blocks' && 'Life Blocks (Decades)'}
               </Text>
               <Text style={styles.weeksSubtitle}>
-                {visualizationMode === 'grid' && `Each dot = 1 week • ${stats.weeksLived} lived • ${stats.weeksLeft} left`}
-                {visualizationMode === 'calendar' && `Each row = 1 year • 52 weeks per row`}
-                {visualizationMode === 'spiral' && `Spiraling through time • ${stats.percentLived.toFixed(1)}% complete`}
-                {visualizationMode === 'blocks' && `Each block = 10 years • ${lifeExpectancy / 10} decades total`}
+                {visualizationMode === 'grid' && `Each dot = 1 week  |  ${stats.weeksLived} lived  |  ${stats.weeksLeft} left`}
+                {visualizationMode === 'calendar' && `Each row = 1 year  |  52 weeks per row`}
+                {visualizationMode === 'spiral' && `Spiraling through time  |  ${stats.percentLived.toFixed(1)}% complete`}
+                {visualizationMode === 'blocks' && `Each block = 10 years  |  ${Math.ceil(lifeExpectancy / 10)} decades total`}
               </Text>
-              
-              {/* Grid View (Original) */}
+
+              {/* Grid View - Memoized */}
               {visualizationMode === 'grid' && (
-                <View style={styles.weeksGrid}>
-                  {Array.from({ length: Math.min(stats.totalWeeks, 4160) }, (_, i) => (
-                    <View 
-                      key={i} 
-                      style={[
-                        styles.weekDot,
-                        i < stats.weeksLived ? styles.weekDotLived : styles.weekDotRemaining
-                      ]} 
-                    />
-                  ))}
-                </View>
+                <WeeksGrid totalWeeks={stats.totalWeeks} weeksLived={stats.weeksLived} />
               )}
-              
+
               {/* Calendar View - Years as rows */}
               {visualizationMode === 'calendar' && (
                 <View style={styles.calendarGrid}>
@@ -547,42 +705,42 @@ export default function App() {
                   })}
                 </View>
               )}
-              
+
               {/* Spiral View */}
               {visualizationMode === 'spiral' && (
                 <View style={styles.spiralContainer}>
                   {Array.from({ length: Math.min(lifeExpectancy, 90) }, (_, i) => {
                     const angle = i * 15 * (Math.PI / 180);
-                    const radius = 20 + i * 1.8;
-                    const x = Math.cos(angle) * radius + 120;
-                    const y = Math.sin(angle) * radius + 120;
-                    const yearsLived = birthDate ? Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
-                    
+                    const radius = 20 + i * 1.5;
+                    const centerX = 150;
+                    const centerY = 150;
+                    const x = Math.cos(angle) * radius + centerX;
+                    const y = Math.sin(angle) * radius + centerY;
+
                     return (
                       <View
                         key={i}
                         style={[
                           styles.spiralDot,
                           { left: x, top: y },
-                          i < yearsLived ? styles.weekDotLived : styles.weekDotRemaining
+                          i < yourAge ? styles.weekDotLived : styles.weekDotRemaining
                         ]}
                       />
                     );
                   })}
                 </View>
               )}
-              
+
               {/* Blocks View - Decades */}
               {visualizationMode === 'blocks' && (
                 <View style={styles.blocksGrid}>
                   {Array.from({ length: Math.ceil(lifeExpectancy / 10) }, (_, decadeIdx) => {
-                    const yearsLived = birthDate ? Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
                     const decadeStart = decadeIdx * 10;
                     const decadeEnd = Math.min((decadeIdx + 1) * 10, lifeExpectancy);
-                    const percentFilled = Math.max(0, Math.min(100, ((yearsLived - decadeStart) / (decadeEnd - decadeStart)) * 100));
-                    const isPast = yearsLived >= decadeEnd;
-                    const isCurrent = yearsLived >= decadeStart && yearsLived < decadeEnd;
-                    
+                    const percentFilled = Math.max(0, Math.min(100, ((yourAge - decadeStart) / (decadeEnd - decadeStart)) * 100));
+                    const isPast = yourAge >= decadeEnd;
+                    const isCurrent = yourAge >= decadeStart && yourAge < decadeEnd;
+
                     return (
                       <View key={decadeIdx} style={styles.decadeBlock}>
                         <View style={[
@@ -603,8 +761,13 @@ export default function App() {
             </View>
 
             {/* Share Button */}
-            <TouchableOpacity style={styles.shareButton} onPress={shareStats}>
-              <Text style={styles.shareButtonText}>📤 Share My Stats</Text>
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={shareStats}
+              accessibilityRole="button"
+              accessibilityLabel="Share my life stats"
+            >
+              <Text style={styles.shareButtonText}>Share My Stats</Text>
             </TouchableOpacity>
           </>
         )}
@@ -613,7 +776,7 @@ export default function App() {
         {activeTab === 'stats' && stats && (
           <>
             <Text style={styles.sectionTitle}>Life in Numbers</Text>
-            
+
             <View style={styles.funStatsGrid}>
               <View style={styles.funStatCard}>
                 <Text style={styles.funStatEmoji}>🌅</Text>
@@ -670,16 +833,15 @@ export default function App() {
             {/* Compare with Historical Figures */}
             <Text style={styles.sectionTitle}>They Changed the World</Text>
             <Text style={styles.sectionSubtitle}>
-              {birthDate && `You've lived ${Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25))} years. Look what they accomplished:`}
+              {birthDate && `You've lived ${yourAge} years. Look what they accomplished:`}
             </Text>
-            
+
             {HISTORICAL_FIGURES.map((figure, idx) => {
-              const yourAge = birthDate ? Math.floor((new Date().getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
               const comparison = yourAge >= figure.livedYears ? 'outlived' : 'younger';
               const diff = Math.abs(yourAge - figure.livedYears);
-              
+
               return (
-                <View key={idx} style={styles.figureCard}>
+                <View key={idx} style={styles.figureCard} accessibilityLabel={`${figure.name}, lived ${figure.livedYears} years. ${figure.quote}. You ${comparison === 'outlived' ? 'outlived them by' : 'are'} ${diff} years ${comparison === 'outlived' ? '' : 'younger'}`}>
                   <Text style={styles.figureEmoji}>{figure.emoji}</Text>
                   <View style={styles.figureInfo}>
                     <Text style={styles.figureName}>{figure.name}</Text>
@@ -703,7 +865,7 @@ export default function App() {
         {activeTab === 'milestones' && (
           <>
             <Text style={styles.sectionTitle}>Countdown To...</Text>
-            
+
             {/* Default Milestones */}
             <View style={styles.milestoneCard}>
               <Text style={styles.milestoneEmoji}>🎂</Text>
@@ -745,16 +907,18 @@ export default function App() {
                     {getMilestoneDaysLeft(new Date(m.date))} days
                   </Text>
                 </View>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.milestoneDeleteButton}
                   onPress={() => deleteMilestone(m.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${m.title} milestone`}
                 >
                   <Text style={styles.milestoneDeleteText}>✕</Text>
                 </TouchableOpacity>
               </View>
             ))}
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.addMilestoneButton}
               onPress={() => {
                 setNewMilestoneYear(String(new Date().getFullYear() + 1));
@@ -762,11 +926,12 @@ export default function App() {
                 setNewMilestoneDay('1');
                 setShowMilestoneModal(true);
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Add custom milestone"
             >
               <Text style={styles.addMilestoneText}>+ Add Custom Milestone</Text>
             </TouchableOpacity>
 
-            {/* Milestone count hint */}
             {milestones.length > 0 && (
               <Text style={styles.deleteHint}>Tap ✕ to remove custom milestones</Text>
             )}
@@ -780,10 +945,11 @@ export default function App() {
           animationType="slide"
           onRequestClose={() => setShowMilestoneModal(false)}
         >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Add Milestone</Text>
-              
+
               {/* Emoji Picker */}
               <Text style={styles.modalLabel}>Pick an emoji</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.emojiPicker}>
@@ -792,12 +958,15 @@ export default function App() {
                     key={emoji}
                     style={[styles.emojiOption, newMilestoneEmoji === emoji && styles.emojiSelected]}
                     onPress={() => setNewMilestoneEmoji(emoji)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Select ${emoji} emoji`}
+                    accessibilityState={{ selected: newMilestoneEmoji === emoji }}
                   >
                     <Text style={styles.emojiText}>{emoji}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-              
+
               {/* Title */}
               <Text style={styles.modalLabel}>What's the milestone?</Text>
               <TextInput
@@ -806,8 +975,9 @@ export default function App() {
                 onChangeText={setNewMilestoneTitle}
                 placeholder="e.g., Retirement, Wedding, Trip to Japan"
                 placeholderTextColor="#666"
+                accessibilityLabel="Milestone title"
               />
-              
+
               {/* Date */}
               <Text style={styles.modalLabel}>When?</Text>
               <View style={styles.dateInputRow}>
@@ -819,6 +989,7 @@ export default function App() {
                   placeholder="MM"
                   placeholderTextColor="#666"
                   maxLength={2}
+                  accessibilityLabel="Milestone month"
                 />
                 <Text style={styles.dateSeparator}>/</Text>
                 <TextInput
@@ -829,24 +1000,28 @@ export default function App() {
                   placeholder="DD"
                   placeholderTextColor="#666"
                   maxLength={2}
+                  accessibilityLabel="Milestone day"
                 />
                 <Text style={styles.dateSeparator}>/</Text>
                 <TextInput
-                  style={[styles.dateInput, { width: 80 }]}
+                  style={[styles.dateInput, { width: 100 }]}
                   value={newMilestoneYear}
                   onChangeText={setNewMilestoneYear}
                   keyboardType="number-pad"
                   placeholder="YYYY"
                   placeholderTextColor="#666"
                   maxLength={4}
+                  accessibilityLabel="Milestone year"
                 />
               </View>
-              
+
               {/* Buttons */}
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={styles.modalCancelButton}
                   onPress={() => setShowMilestoneModal(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
                 >
                   <Text style={styles.modalCancelText}>Cancel</Text>
                 </TouchableOpacity>
@@ -857,61 +1032,65 @@ export default function App() {
                       const month = parseInt(newMilestoneMonth);
                       const day = parseInt(newMilestoneDay);
                       const year = parseInt(newMilestoneYear);
-                      
-                      // Validate date
-                      if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2020) {
-                        return; // Invalid date
+
+                      if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2024) {
+                        Alert.alert('Invalid Date', 'Please enter a valid date.');
+                        return;
                       }
-                      
+
                       const date = new Date(year, month - 1, day);
-                      
-                      // Check if date is in the future
-                      if (date <= new Date()) {
-                        return; // Date must be in the future
+                      if (date.getMonth() !== month - 1 || date.getDate() !== day) {
+                        Alert.alert('Invalid Date', 'This date does not exist.');
+                        return;
                       }
-                      
+
+                      if (date <= new Date()) {
+                        Alert.alert('Invalid Date', 'Milestone must be in the future.');
+                        return;
+                      }
+
                       addMilestone(newMilestoneTitle, date, newMilestoneEmoji);
                       setNewMilestoneTitle('');
                       setShowMilestoneModal(false);
+                    } else {
+                      Alert.alert('Missing Info', 'Please fill in all fields.');
                     }
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add milestone"
                 >
                   <Text style={styles.modalSaveText}>Add</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
+          </TouchableWithoutFeedback>
         </Modal>
 
         {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
           <>
             <Text style={styles.sectionTitle}>Settings</Text>
-            
+
             <View style={styles.settingRow}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.settingLabel}>Daily Reminder</Text>
                 <Text style={styles.settingDescription}>Get reminded of your mortality at 8 AM</Text>
               </View>
               <Switch
                 value={dailyReminders}
-                onValueChange={(value) => {
-                  setDailyReminders(value);
-                  AsyncStorage.setItem('lifeCountdown', JSON.stringify({
-                    birthDate: birthDate?.toISOString(),
-                    lifeExpectancy,
-                    dailyReminders: value,
-                    milestones
-                  }));
-                }}
+                onValueChange={handleDailyReminderToggle}
                 trackColor={{ false: '#333', true: '#ff6b35' }}
                 thumbColor="#fff"
+                accessibilityLabel="Toggle daily reminder notifications"
               />
             </View>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.settingButton}
               onPress={() => setShowSetup(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Change birth date or life expectancy"
             >
               <Text style={styles.settingButtonText}>Change Birth Date / Life Expectancy</Text>
             </TouchableOpacity>
@@ -924,6 +1103,8 @@ export default function App() {
                 Use this app as a daily reminder that your time is limited and precious.
               </Text>
             </View>
+
+            <Text style={styles.versionText}>Life Countdown v1.0.0</Text>
           </>
         )}
 
@@ -940,9 +1121,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
+  tabBarSafeArea: {
+    backgroundColor: '#111',
+  },
   tabBar: {
     flexDirection: 'row',
-    paddingTop: 50,
     paddingBottom: 10,
     backgroundColor: '#111',
     borderBottomWidth: 1,
@@ -978,15 +1161,21 @@ const styles = StyleSheet.create({
   },
   setupTagline: {
     fontSize: 16,
-    color: '#666',
+    color: '#888',
     fontStyle: 'italic',
     marginBottom: 40,
   },
   setupSubtitle: {
     fontSize: 14,
-    color: '#888',
+    color: '#999',
     marginBottom: 15,
     marginTop: 25,
+  },
+  setupError: {
+    color: '#ff4444',
+    fontSize: 14,
+    marginTop: 16,
+    textAlign: 'center',
   },
   dateInputRow: {
     flexDirection: 'row',
@@ -996,13 +1185,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     color: '#fff',
     fontSize: 24,
-    padding: 15,
+    padding: 12,
     borderRadius: 10,
-    width: 60,
+    width: 65,
     textAlign: 'center',
   },
   dateSeparator: {
-    color: '#444',
+    color: '#555',
     fontSize: 24,
     marginHorizontal: 8,
   },
@@ -1020,7 +1209,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   expectancyLabel: {
-    color: '#666',
+    color: '#888',
     fontSize: 18,
     marginLeft: 10,
   },
@@ -1042,7 +1231,7 @@ const styles = StyleSheet.create({
   },
   quote: {
     fontSize: 14,
-    color: '#666',
+    color: '#888',
     fontStyle: 'italic',
     textAlign: 'center',
     paddingHorizontal: 20,
@@ -1059,7 +1248,7 @@ const styles = StyleSheet.create({
   },
   timerLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#888',
   },
   bigStatContainer: {
     alignItems: 'center',
@@ -1072,7 +1261,7 @@ const styles = StyleSheet.create({
   },
   bigLabel: {
     fontSize: 16,
-    color: '#888',
+    color: '#999',
     marginTop: -5,
   },
   progressContainer: {
@@ -1091,7 +1280,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   progressText: {
-    color: '#666',
+    color: '#888',
     fontSize: 12,
     textAlign: 'center',
     marginTop: 8,
@@ -1114,7 +1303,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#888',
     marginTop: 4,
   },
   weeksSection: {
@@ -1129,7 +1318,7 @@ const styles = StyleSheet.create({
   },
   weeksSubtitle: {
     fontSize: 11,
-    color: '#666',
+    color: '#888',
     marginBottom: 12,
   },
   weeksGrid: {
@@ -1146,7 +1335,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff6b35',
   },
   weekDotRemaining: {
-    backgroundColor: '#333',
+    backgroundColor: '#444',
   },
   shareButton: {
     backgroundColor: '#222',
@@ -1187,7 +1376,7 @@ const styles = StyleSheet.create({
   },
   funStatLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#888',
   },
   motivationSection: {
     padding: 20,
@@ -1204,7 +1393,7 @@ const styles = StyleSheet.create({
   },
   motivationText: {
     fontSize: 14,
-    color: '#888',
+    color: '#999',
     lineHeight: 24,
   },
   milestoneCard: {
@@ -1239,7 +1428,7 @@ const styles = StyleSheet.create({
   },
   milestoneDeleteText: {
     fontSize: 18,
-    color: '#666',
+    color: '#888',
   },
   addMilestoneButton: {
     marginHorizontal: 15,
@@ -1252,7 +1441,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   addMilestoneText: {
-    color: '#666',
+    color: '#888',
     fontSize: 16,
   },
   settingRow: {
@@ -1272,7 +1461,7 @@ const styles = StyleSheet.create({
   },
   settingDescription: {
     fontSize: 12,
-    color: '#666',
+    color: '#888',
     marginTop: 4,
   },
   settingButton: {
@@ -1299,8 +1488,15 @@ const styles = StyleSheet.create({
   },
   aboutText: {
     fontSize: 14,
-    color: '#666',
+    color: '#888',
     lineHeight: 22,
+  },
+  versionText: {
+    fontSize: 12,
+    color: '#555',
+    textAlign: 'center',
+    marginTop: 20,
+    marginBottom: 20,
   },
   // Modal Styles
   modalOverlay: {
@@ -1325,7 +1521,7 @@ const styles = StyleSheet.create({
   },
   modalLabel: {
     fontSize: 14,
-    color: '#888',
+    color: '#999',
     marginBottom: 8,
     marginTop: 16,
   },
@@ -1381,7 +1577,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   deleteHint: {
-    color: '#666',
+    color: '#888',
     fontSize: 12,
     textAlign: 'center',
     marginTop: 15,
@@ -1390,7 +1586,7 @@ const styles = StyleSheet.create({
   // Historical Figures Styles
   sectionSubtitle: {
     fontSize: 14,
-    color: '#888',
+    color: '#999',
     paddingHorizontal: 20,
     marginTop: -10,
     marginBottom: 15,
@@ -1418,11 +1614,11 @@ const styles = StyleSheet.create({
   },
   figureYears: {
     fontSize: 12,
-    color: '#888',
+    color: '#999',
   },
   figureQuote: {
     fontSize: 11,
-    color: '#666',
+    color: '#888',
     fontStyle: 'italic',
     marginTop: 2,
   },
@@ -1459,7 +1655,7 @@ const styles = StyleSheet.create({
   },
   vizModeText: {
     fontSize: 20,
-    color: '#888',
+    color: '#999',
   },
   vizModeTextActive: {
     color: '#fff',
@@ -1476,7 +1672,7 @@ const styles = StyleSheet.create({
   calendarYear: {
     width: 24,
     fontSize: 8,
-    color: '#666',
+    color: '#888',
     textAlign: 'right',
     marginRight: 4,
   },
@@ -1492,8 +1688,8 @@ const styles = StyleSheet.create({
   },
   // Spiral View Styles
   spiralContainer: {
-    width: 240,
-    height: 240,
+    width: 300,
+    height: 300,
     alignSelf: 'center',
     position: 'relative',
   },
@@ -1533,7 +1729,7 @@ const styles = StyleSheet.create({
   },
   decadeLabel: {
     fontSize: 10,
-    color: '#666',
+    color: '#888',
     marginTop: 4,
   },
 });
