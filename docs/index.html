@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Countdown — Memento Mori App for iOS</title>
+    <meta name="description" content="Life Countdown is a memento mori app that visualizes your remaining time. Make every moment count.">
+    <meta name="theme-color" content="#0a0a0a">
+    <link rel="canonical" href="https://lifecountdownapp.com/">
+    <meta property="og:title" content="Life Countdown — Memento Mori App for iOS">
+    <meta property="og:description" content="Your time is finite. Use it. Visualize your remaining time and make every moment count.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://lifecountdownapp.com/">
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #0a0a0a;
+            color: #e5e5e5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        a {
+            color: #ff6b35;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* ---- Hero ---- */
+        .hero {
+            text-align: center;
+            padding: 6rem 1.5rem 4rem;
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        .hero-label {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: #ff6b35;
+            margin-bottom: 1.25rem;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+            line-height: 1.15;
+            margin-bottom: 0.75rem;
+        }
+
+        .hero .tagline {
+            font-size: 1.15rem;
+            color: #999999;
+            font-style: italic;
+            margin-bottom: 1.5rem;
+        }
+
+        .hero .description {
+            font-size: 1.05rem;
+            color: #bbbbbb;
+            max-width: 540px;
+            margin: 0 auto 2.5rem;
+        }
+
+        /* ---- App Store Button ---- */
+        .cta-button {
+            display: inline-block;
+            background-color: #ff6b35;
+            color: #ffffff;
+            font-size: 1rem;
+            font-weight: 600;
+            padding: 0.85rem 2rem;
+            border-radius: 12px;
+            transition: background-color 0.2s ease;
+        }
+
+        .cta-button:hover {
+            background-color: #e85d2c;
+            text-decoration: none;
+        }
+
+        /* ---- Features ---- */
+        .features {
+            max-width: 880px;
+            margin: 0 auto;
+            padding: 3rem 1.5rem 4rem;
+        }
+
+        .features h2 {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 2.5rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 2rem;
+        }
+
+        .feature-card {
+            background: #141414;
+            border: 1px solid #1e1e1e;
+            border-radius: 14px;
+            padding: 1.75rem;
+        }
+
+        .feature-icon {
+            font-size: 1.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-card p {
+            font-size: 0.9rem;
+            color: #999999;
+            line-height: 1.6;
+        }
+
+        /* ---- Bottom CTA ---- */
+        .bottom-cta {
+            text-align: center;
+            padding: 3rem 1.5rem 4rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .bottom-cta p {
+            font-size: 1.1rem;
+            color: #888888;
+            margin-bottom: 1.75rem;
+        }
+
+        /* ---- Footer ---- */
+        footer {
+            text-align: center;
+            padding: 2rem 1.5rem 3rem;
+            border-top: 1px solid #1a1a1a;
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        footer p {
+            font-size: 0.8rem;
+            color: #555555;
+            margin-bottom: 0.4rem;
+        }
+
+        footer a {
+            color: #777777;
+        }
+
+        footer a:hover {
+            color: #ff6b35;
+        }
+
+        .footer-links {
+            margin-bottom: 0.75rem;
+        }
+
+        .footer-links a {
+            margin: 0 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        /* ---- Responsive ---- */
+        @media (max-width: 600px) {
+            .hero {
+                padding: 4rem 1.25rem 3rem;
+            }
+
+            .hero h1 {
+                font-size: 2.25rem;
+            }
+
+            .hero .tagline {
+                font-size: 1rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 1.25rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hero -->
+    <section class="hero">
+        <span class="hero-label">Memento Mori</span>
+        <h1>Life Countdown</h1>
+        <p class="tagline">Your time is finite. Use it.</p>
+        <p class="description">See your life in weeks, days, and heartbeats. Life Countdown transforms the abstract passage of time into vivid, motivating visualizations that inspire you to live with intention.</p>
+        <a href="#" class="cta-button">Download on the App Store</a>
+    </section>
+
+    <!-- Features -->
+    <section class="features">
+        <h2>What you get</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">&#9201;</div>
+                <h3>Live Countdown</h3>
+                <p>Watch your remaining years, months, days, hours, and seconds tick away in real time. A constant, honest reminder.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#9638;</div>
+                <h3>Life Visualizations</h3>
+                <p>See your entire life laid out as a grid of weeks or months. Each filled square is a week you have already lived.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#9829;</div>
+                <h3>Life Stats</h3>
+                <p>Heartbeats left, breaths remaining, sunrises to come. Perspective-shifting numbers about your time on Earth.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#9873;</div>
+                <h3>Milestones</h3>
+                <p>Track meaningful life milestones and see how far you have come and what still lies ahead on your timeline.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#9888;</div>
+                <h3>Daily Reminders</h3>
+                <p>Gentle push notifications to keep mortality top of mind, so you stay focused on what truly matters to you.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#9790;</div>
+                <h3>Dark by Design</h3>
+                <p>A beautiful, minimal dark interface crafted for reflection. Easy on the eyes, heavy on meaning.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Bottom CTA -->
+    <section class="bottom-cta">
+        <p>The Stoics practiced memento mori to live fuller lives. This app puts that philosophy in your pocket.</p>
+        <a href="#" class="cta-button">Download on the App Store</a>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-links">
+            <a href="privacy.html">Privacy Policy</a>
+            <a href="mailto:support@lifecountdownapp.com">Contact</a>
+        </div>
+        <p>&copy; 2026 EVC Engage. All rights reserved.</p>
+        <p><a href="mailto:support@lifecountdownapp.com">support@lifecountdownapp.com</a></p>
+    </footer>
+
+</body>
+</html>
