@@ -19,13 +19,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
-// Widget support - conditional import for iOS
-let WidgetKit: any = null;
-try {
-  WidgetKit = require('react-native-widgetkit');
-} catch (e) {
-  // Widget kit not available
-}
+// Widget support - to be added with native build
+const WidgetKit: any = null;
 
 const { width } = Dimensions.get('window');
 const APP_GROUP = 'group.com.evcengage.lifecountdown';
